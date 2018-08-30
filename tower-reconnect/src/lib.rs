@@ -8,11 +8,11 @@ use tower_service::{Service, NewService};
 
 use std::{error, fmt};
 
-pub struct Reconnect<T>
-where T: NewService,
+pub struct Reconnect<T, R>
+where T: NewService<R>,
 {
     new_service: T,
-    state: State<T>,
+    state: State<T, R>,
 }
 
 #[derive(Debug)]
@@ -22,15 +22,14 @@ pub enum Error<T, U> {
     NotReady,
 }
 
-pub struct ResponseFuture<T>
-where T: NewService
+pub struct ResponseFuture<T, R>
+where T: NewService<R>
 {
-    inner: Option<<T::Service as Service>::Future>,
+    inner: Option<<T::Service as Service<R>>::Future>,
 }
 
-#[derive(Debug)]
-enum State<T>
-where T: NewService
+enum State<T, R>
+where T: NewService<R>
 {
     Idle,
     Connecting(T::Future),
@@ -39,8 +38,8 @@ where T: NewService
 
 // ===== impl Reconnect =====
 
-impl<T> Reconnect<T>
-where T: NewService,
+impl<T, R> Reconnect<T, R>
+where T: NewService<R>,
 {
     pub fn new(new_service: T) -> Self {
         Reconnect {
@@ -50,13 +49,12 @@ where T: NewService,
     }
 }
 
-impl<T> Service for Reconnect<T>
-where T: NewService
+impl<T, R> Service<R> for Reconnect<T, R>
+where T: NewService<R>
 {
-    type Request = T::Request;
     type Response = T::Response;
     type Error = Error<T::Error, T::InitError>;
-    type Future = ResponseFuture<T>;
+    type Future = ResponseFuture<T, R>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
         use self::State::*;
@@ -116,7 +114,7 @@ where T: NewService
         ret
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: R) -> Self::Future {
         use self::State::*;
 
         trace!("call");
@@ -131,8 +129,8 @@ where T: NewService
     }
 }
 
-impl<T> fmt::Debug for Reconnect<T>
-where T: NewService + fmt::Debug,
+impl<T, R> fmt::Debug for Reconnect<T, R>
+where T: NewService<R> + fmt::Debug,
       T::Future: fmt::Debug,
       T::Service: fmt::Debug,
 {
@@ -144,9 +142,28 @@ where T: NewService + fmt::Debug,
     }
 }
 
+// Manual impl of Debug for State because we should be able to
+// format a state regardless of whether or not the request type
+// is debug.
+impl<T, R> fmt::Debug for State<T, R>
+where T: NewService<R> + fmt::Debug,
+      T::Future: fmt::Debug,
+      T::Service: fmt::Debug,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            State::Idle => fmt.pad("State::Idle"),
+            State::Connecting(ref f) => write!(fmt, "State::Connecting({:?})", f),
+            State::Connected(ref t) => write!(fmt, "State::Connected({:?})", t),
+        }
+
+    }
+}
+
+
 // ===== impl ResponseFuture =====
 
-impl<T: NewService> Future for ResponseFuture<T> {
+impl<T: NewService<R>, R> Future for ResponseFuture<T, R> {
     type Item = T::Response;
     type Error = Error<T::Error, T::InitError>;
 
