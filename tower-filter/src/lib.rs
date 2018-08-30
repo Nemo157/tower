@@ -9,29 +9,31 @@ use futures::task::AtomicTask;
 use tower_service::Service;
 
 use std::{fmt, mem};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 
 #[derive(Debug)]
-pub struct Filter<T, U> {
+pub struct Filter<T, U, R> {
     inner: T,
     predicate: U,
     // Tracks the number of in-flight requests
     counts: Arc<Counts>,
+    _req: PhantomData<fn() -> R>,
 }
 
-pub struct ResponseFuture<T, S>
-where S: Service,
+pub struct ResponseFuture<T, S, R>
+where S: Service<R>,
 {
-    inner: Option<ResponseInner<T, S>>,
+    inner: Option<ResponseInner<T, S, R>>,
 }
 
 #[derive(Debug)]
-struct ResponseInner<T, S>
-where S: Service,
+struct ResponseInner<T, S, R>
+where S: Service<R>,
 {
-    state: State<S::Request, S::Future>,
+    state: State<R, S::Future>,
     check: T,
     service: S,
     counts: Arc<Counts>,
@@ -77,9 +79,9 @@ enum State<T, U> {
 
 // ===== impl Filter =====
 
-impl<T, U> Filter<T, U>
-where T: Service + Clone,
-      U: Predicate<T::Request>,
+impl<T, U, R> Filter<T, U, R>
+where T: Service<R> + Clone,
+      U: Predicate<R>,
 {
     pub fn new(inner: T, predicate: U, buffer: usize) -> Self {
         let counts = Counts {
@@ -91,18 +93,18 @@ where T: Service + Clone,
             inner,
             predicate,
             counts: Arc::new(counts),
+            _req: PhantomData,
         }
     }
 }
 
-impl<T, U> Service for Filter<T, U>
-where T: Service + Clone,
-      U: Predicate<T::Request>,
+impl<T, U, R> Service<R> for Filter<T, U, R>
+where T: Service<R> + Clone,
+      U: Predicate<R>,
 {
-    type Request = T::Request;
     type Response = T::Response;
     type Error = Error<U::Error, T::Error>;
-    type Future = ResponseFuture<U::Future, T>;
+    type Future = ResponseFuture<U::Future, T, R>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
         self.counts.task.register();
@@ -118,7 +120,7 @@ where T: Service + Clone,
         }
     }
 
-    fn call(&mut self, request: T::Request) -> Self::Future {
+    fn call(&mut self, request: R) -> Self::Future {
         let rem = self.counts.rem.load(SeqCst);
 
         if rem == 0 {
@@ -166,9 +168,9 @@ impl<F, T, U> Predicate<T> for F
 
 // ===== impl ResponseFuture =====
 
-impl<T, U> Future for ResponseFuture<T, U>
+impl<T, U, R> Future for ResponseFuture<T, U, R>
 where T: Future,
-      U: Service,
+      U: Service<R>,
 {
     type Item = U::Response;
     type Error = Error<T::Error, U::Error>;
@@ -181,10 +183,10 @@ where T: Future,
     }
 }
 
-impl<T, S> fmt::Debug for ResponseFuture<T, S>
+impl<T, S, R> fmt::Debug for ResponseFuture<T, S, R>
 where T: fmt::Debug,
-      S: Service + fmt::Debug,
-      S::Request: fmt::Debug,
+      S: Service<R> + fmt::Debug,
+      R: fmt::Debug,
       S::Future: fmt::Debug,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -196,9 +198,9 @@ where T: fmt::Debug,
 
 // ===== impl ResponseInner =====
 
-impl<T, U> ResponseInner<T, U>
+impl<T, U, R> ResponseInner<T, U, R>
 where T: Future,
-      U: Service,
+      U: Service<R>,
 {
     fn inc_rem(&self) {
         if 0 == self.counts.rem.fetch_add(1, SeqCst) {
