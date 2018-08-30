@@ -27,16 +27,16 @@ use std::sync::atomic::Ordering;
 /// Adds a buffer in front of an inner service.
 ///
 /// See crate level documentation for more details.
-pub struct Buffer<T>
-where T: Service,
+pub struct Buffer<T, R>
+where T: Service<R>,
 {
-    tx: UnboundedSender<Message<T>>,
+    tx: UnboundedSender<Message<T, R>>,
     state: Arc<State>,
 }
 
 /// Future eventually completed with the response to the original request.
-pub struct ResponseFuture<T>
-where T: Service,
+pub struct ResponseFuture<T, R>
+where T: Service<R>,
 {
     state: ResponseState<T::Future>,
 }
@@ -50,11 +50,11 @@ pub enum Error<T> {
 
 /// Task that handles processing the buffer. This type should not be used
 /// directly, instead `Buffer` requires an `Executor` that can accept this task.
-pub struct Worker<T>
-where T: Service,
+pub struct Worker<T, R>
+where T: Service<R>,
 {
-    current_message: Option<Message<T>>,
-    rx: UnboundedReceiver<Message<T>>,
+    current_message: Option<Message<T, R>>,
+    rx: UnboundedReceiver<Message<T, R>>,
     service: T,
     state: Arc<State>,
 }
@@ -67,8 +67,8 @@ pub struct SpawnError<T> {
 
 /// Message sent over buffer
 #[derive(Debug)]
-struct Message<T: Service> {
-    request: T::Request,
+struct Message<T: Service<R>, R> {
+    request: R,
     tx: oneshot::Sender<T::Future>,
 }
 
@@ -82,8 +82,8 @@ enum ResponseState<T> {
     Poll(T),
 }
 
-impl<T> Buffer<T>
-where T: Service,
+impl<T, R> Buffer<T, R>
+where T: Service<R>,
 {
     /// Creates a new `Buffer` wrapping `service`.
     ///
@@ -91,7 +91,7 @@ where T: Service,
     /// draining the buffer and dispatching the requests to the internal
     /// service.
     pub fn new<E>(service: T, executor: &E) -> Result<Self, SpawnError<T>>
-    where E: Executor<Worker<T>>,
+    where E: Executor<Worker<T, R>>,
     {
         let (tx, rx) = mpsc::unbounded();
 
@@ -117,13 +117,12 @@ where T: Service,
     }
 }
 
-impl<T> Service for Buffer<T>
-where T: Service,
+impl<T, R> Service<R> for Buffer<T, R>
+where T: Service<R>,
 {
-    type Request = T::Request;
     type Response = T::Response;
     type Error = Error<T::Error>;
-    type Future = ResponseFuture<T>;
+    type Future = ResponseFuture<T, R>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
         // If the inner service has errored, then we error here.
@@ -136,7 +135,7 @@ where T: Service,
         }
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: R) -> Self::Future {
         let (tx, rx) = oneshot::channel();
 
         let sent = self.tx.unbounded_send(Message {
@@ -152,8 +151,8 @@ where T: Service,
     }
 }
 
-impl<T> Clone for Buffer<T>
-where T: Service
+impl<T, R> Clone for Buffer<T, R>
+where T: Service<R>
 {
     fn clone(&self) -> Self {
         Self {
@@ -165,8 +164,8 @@ where T: Service
 
 // ===== impl ResponseFuture =====
 
-impl<T> Future for ResponseFuture<T>
-where T: Service
+impl<T, R> Future for ResponseFuture<T, R>
+where T: Service<R>
 {
     type Item = T::Response;
     type Error = Error<T::Error>;
@@ -197,11 +196,11 @@ where T: Service
 
 // ===== impl Worker =====
 
-impl<T> Worker<T>
-where T: Service
+impl<T, R> Worker<T, R>
+where T: Service<R>
 {
     /// Return the next queued Message that hasn't been canceled.
-    fn poll_next_msg(&mut self) -> Poll<Option<Message<T>>, ()> {
+    fn poll_next_msg(&mut self) -> Poll<Option<Message<T, R>>, ()> {
         if let Some(mut msg) = self.current_message.take() {
             // poll_cancel returns Async::Ready is the receiver is dropped.
             // Returning NotReady means it is still alive, so we should still
@@ -223,8 +222,8 @@ where T: Service
     }
 }
 
-impl<T> Future for Worker<T>
-where T: Service,
+impl<T, R> Future for Worker<T, R>
+where T: Service<R>,
 {
     type Item = ();
     type Error = ();
