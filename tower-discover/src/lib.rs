@@ -13,6 +13,7 @@ use tower_service::Service;
 
 use std::hash::Hash;
 use std::iter::{Enumerate, IntoIterator};
+use std::marker::PhantomData;
 
 /// Provide a uniform set of services able to satisfy a request.
 ///
@@ -20,12 +21,9 @@ use std::iter::{Enumerate, IntoIterator};
 /// new `NewServiceSet` is yielded by `Discover`.
 ///
 /// See crate documentation for more details.
-pub trait Discover {
+pub trait Discover<Request> {
     /// NewService key
     type Key: Hash + Eq;
-
-    /// Requests handled by the discovered services
-    type Request;
 
     /// Responses given by the discovered services
     type Response;
@@ -34,7 +32,7 @@ pub trait Discover {
     type Error;
 
     /// The discovered `Service` instance.
-    type Service: Service<Request = Self::Request,
+    type Service: Service<Request,
                          Response = Self::Response,
                             Error = Self::Error>;
 
@@ -55,29 +53,32 @@ pub enum Change<K, V> {
 ///
 /// `List` is created with an initial list of services. The discovery process
 /// will yield this list once and do nothing after.
-pub struct List<T> {
+pub struct List<T, R> {
     inner: Enumerate<T>,
+    _req: PhantomData<fn() -> R>,
 }
 
 // ===== impl List =====
 
-impl<T, U> List<T>
+impl<T, R, U> List<T, R>
 where T: Iterator<Item = U>,
-      U: Service,
+      U: Service<R>,
 {
-    pub fn new<I>(services: I) -> List<T>
+    pub fn new<I>(services: I) -> List<T, R>
     where I: IntoIterator<Item = U, IntoIter = T>,
     {
-        List { inner: services.into_iter().enumerate() }
+        List {
+            inner: services.into_iter().enumerate(),
+            _req: PhantomData,
+        }
     }
 }
 
-impl<T, U> Discover for List<T>
+impl<T, R, U> Discover<R> for List<T, R>
 where T: Iterator<Item = U>,
-      U: Service,
+      U: Service<R>,
 {
     type Key = usize;
-    type Request = U::Request;
     type Response = U::Response;
     type Error = U::Error;
     type Service = U;
