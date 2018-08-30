@@ -9,14 +9,16 @@ use tower_service::Service;
 use futures::{Future, Poll, Async};
 use futures::task::AtomicTask;
 use std::{error, fmt};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 
 #[derive(Debug, Clone)]
-pub struct InFlightLimit<T> {
+pub struct InFlightLimit<T, R>  {
     inner: T,
     state: State,
+    _req: PhantomData<fn() -> R>,
 }
 
 /// Error returned when the service has reached its limit.
@@ -47,7 +49,7 @@ struct Shared {
 
 // ===== impl InFlightLimit =====
 
-impl<T> InFlightLimit<T> {
+impl<T: Service<R>, R> InFlightLimit<T, R> {
     /// Create a new rate limiter
     pub fn new(inner: T, max: usize) -> Self {
         InFlightLimit {
@@ -60,6 +62,7 @@ impl<T> InFlightLimit<T> {
                 }),
                 reserved: false,
             },
+            _req: PhantomData,
         }
     }
 
@@ -79,10 +82,9 @@ impl<T> InFlightLimit<T> {
     }
 }
 
-impl<S> Service for InFlightLimit<S>
-where S: Service
+impl<S, R> Service<R> for InFlightLimit<S, R>
+where S: Service<R>
 {
-    type Request = S::Request;
     type Response = S::Response;
     type Error = Error<S::Error>;
     type Future = ResponseFuture<S::Future>;
@@ -105,7 +107,7 @@ where S: Service
             .map_err(Error::Upstream)
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: R) -> Self::Future {
         // In this implementation, `poll_ready` is not expected to be called
         // first (though, it might have been).
         if self.state.reserved {
