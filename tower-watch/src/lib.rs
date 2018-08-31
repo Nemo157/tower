@@ -8,8 +8,8 @@ use futures_watch::{Watch, WatchError};
 use tower_service::Service;
 
 /// Binds new instances of a Service with a borrowed reference to the watched value.
-pub trait Bind<T> {
-    type Service: Service;
+pub trait Bind<T, R> {
+    type Service: Service<R>;
 
     fn bind(&mut self, t: &T) -> Self::Service;
 }
@@ -19,7 +19,7 @@ pub trait Bind<T> {
 // This can be used to reconfigure Services from a shared or otherwise
 // externally-controlled configuration source (for instance, a file system).
 #[derive(Debug)]
-pub struct WatchService<T, B: Bind<T>> {
+pub struct WatchService<T, R, B: Bind<T, R>> {
     watch: Watch<T>,
     bind: B,
     inner: B::Service,
@@ -36,9 +36,9 @@ pub struct ResponseFuture<F>(F);
 
 // ==== impl WatchService ====
 
-impl<T, B: Bind<T>> WatchService<T, B> {
+impl<T, R, B: Bind<T, R>> WatchService<T, R, B> {
     /// Creates a new WatchService, bound from the initial value of `watch`.
-    pub fn new(watch: Watch<T>, mut bind: B) -> WatchService<T, B> {
+    pub fn new(watch: Watch<T>, mut bind: B) -> WatchService<T, R, B> {
         let inner = bind.bind(&*watch.borrow());
         WatchService { watch, bind, inner }
     }
@@ -56,27 +56,26 @@ impl<T, B: Bind<T>> WatchService<T, B> {
     }
 }
 
-impl<T, B: Bind<T>> Service for WatchService<T, B> {
-    type Request = <B::Service as Service>::Request;
-    type Response = <B::Service as Service>::Response;
-    type Error = Error<<B::Service as Service>::Error>;
-    type Future = ResponseFuture<<B::Service as Service>::Future>;
+impl<T, R, B: Bind<T, R>> Service<R> for WatchService<T, R, B> {
+    type Response = <B::Service as Service<R>>::Response;
+    type Error = Error<<B::Service as Service<R>>::Error>;
+    type Future = ResponseFuture<<B::Service as Service<R>>::Future>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
         let _ = self.poll_rebind().map_err(Error::WatchError)?;
         self.inner.poll_ready().map_err(Error::Inner)
     }
 
-    fn call(&mut self, req: Self::Request) -> Self::Future {
+    fn call(&mut self, req: R) -> Self::Future {
         ResponseFuture(self.inner.call(req))
     }
 }
 
 // ==== impl Bind<T> ====
 
-impl<T, S, F> Bind<T> for F
+impl<T, R, S, F> Bind<T, R> for F
 where
-    S: Service,
+    S: Service<R>,
     for<'t> F: FnMut(&'t T) -> S,
 {
     type Service = S;
@@ -109,8 +108,7 @@ mod tests {
     #[test]
     fn rebind() {
         struct Svc(usize);
-        impl Service for Svc {
-            type Request = ();
+        impl Service<()> for Svc {
             type Response = usize;
             type Error = ();
             type Future = future::FutureResult<usize, ()>;
