@@ -60,6 +60,7 @@ use futures::{Future, Poll};
 use tower_service::Service;
 
 use std::fmt;
+use std::marker::PhantomData;
 
 /// A boxed `Service + Send` trait object.
 ///
@@ -69,7 +70,7 @@ use std::fmt;
 ///
 /// See module level documentation for more details.
 pub struct BoxService<T, U, E> {
-    inner: Box<Service<Request = T,
+    inner: Box<Service<T,
                       Response = U,
                          Error = E,
                         Future = BoxFuture<U, E>> + Send>,
@@ -83,7 +84,7 @@ pub type BoxFuture<T, E> = Box<Future<Item = T, Error = E> + Send>;
 
 /// A boxed `Service` trait object.
 pub struct UnsyncBoxService<T, U, E> {
-    inner: Box<Service<Request = T,
+    inner: Box<Service<T,
                       Response = U,
                          Error = E,
                         Future = UnsyncBoxFuture<U, E>>>,
@@ -96,13 +97,15 @@ pub struct UnsyncBoxService<T, U, E> {
 pub type UnsyncBoxFuture<T, E> = Box<Future<Item = T, Error = E>>;
 
 #[derive(Debug)]
-struct Boxed<S> {
+struct Boxed<S, R> {
     inner: S,
+    _req: PhantomData<fn() -> R>,
 }
 
 #[derive(Debug)]
-struct UnsyncBoxed<S> {
+struct UnsyncBoxed<S, R> {
     inner: S,
+    _req: PhantomData<fn() -> R>,
 }
 
 // ===== impl BoxService =====
@@ -110,17 +113,17 @@ struct UnsyncBoxed<S> {
 impl<T, U, E> BoxService<T, U, E>
 {
     pub fn new<S>(inner: S) -> Self
-        where S: Service<Request = T, Response = U, Error = E> + Send + 'static,
+        where S: Service<T, Response = U, Error = E> + Send + 'static,
               S::Future: Send + 'static,
+              T: 'static,
     {
-        let inner = Box::new(Boxed { inner });
+        let inner = Box::new(Boxed { inner, _req: PhantomData });
         BoxService { inner }
     }
 }
 
-impl<T, U, E> Service for BoxService<T, U, E>
+impl<T, U, E> Service<T> for BoxService<T, U, E>
 {
-    type Request = T;
     type Response = U;
     type Error = E;
     type Future = BoxFuture<U, E>;
@@ -150,17 +153,20 @@ where T: fmt::Debug,
 impl<T, U, E> UnsyncBoxService<T, U, E>
 {
     pub fn new<S>(inner: S) -> Self
-        where S: Service<Request = T, Response = U, Error = E> + 'static,
+        where S: Service<T, Response = U, Error = E> + 'static,
               S::Future: 'static,
+              T: 'static,
     {
-        let inner = Box::new(UnsyncBoxed { inner });
+        let inner = Box::new(UnsyncBoxed {
+            inner,
+            _req: PhantomData,
+        });
         UnsyncBoxService { inner }
     }
 }
 
-impl<T, U, E> Service for UnsyncBoxService<T, U, E>
+impl<T, U, E> Service<T> for UnsyncBoxService<T, U, E>
 {
-    type Request = T;
     type Response = U;
     type Error = E;
     type Future = UnsyncBoxFuture<U, E>;
@@ -187,11 +193,10 @@ where T: fmt::Debug,
 
 // ===== impl Boxed =====
 
-impl<S> Service for Boxed<S>
-where S: Service + 'static,
+impl<S, R> Service<R> for Boxed<S, R>
+where S: Service<R> + 'static,
       S::Future: Send + 'static,
 {
-    type Request = S::Request;
     type Response = S::Response;
     type Error = S::Error;
     type Future = Box<Future<Item = S::Response,
@@ -201,18 +206,17 @@ where S: Service + 'static,
         self.inner.poll_ready()
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: R) -> Self::Future {
         Box::new(self.inner.call(request))
     }
 }
 
 // ===== impl UnsyncBoxed =====
 
-impl<S> Service for UnsyncBoxed<S>
-where S: Service + 'static,
+impl<S, R> Service<R> for UnsyncBoxed<S, R>
+where S: Service<R> + 'static,
       S::Future: 'static,
 {
-    type Request = S::Request;
     type Response = S::Response;
     type Error = S::Error;
     type Future = Box<Future<Item = S::Response,
@@ -222,7 +226,7 @@ where S: Service + 'static,
         self.inner.poll_ready()
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: R) -> Self::Future {
         Box::new(self.inner.call(request))
     }
 }
