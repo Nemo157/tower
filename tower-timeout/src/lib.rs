@@ -13,14 +13,12 @@ use tokio_timer::{clock, Delay};
 
 use std::{error, fmt};
 use std::time::Duration;
-use std::marker::PhantomData;
 
 /// Applies a timeout to requests.
 #[derive(Debug)]
-pub struct Timeout<T, R> {
+pub struct Timeout<T> {
     inner: T,
     timeout: Duration,
-    _req: PhantomData<fn() -> R>,
 }
 
 /// Errors produced by `Timeout`.
@@ -42,17 +40,16 @@ pub struct ResponseFuture<T> {
 
 // ===== impl Timeout =====
 
-impl<T, R> Timeout<T, R> {
+impl<T> Timeout<T> {
     pub fn new(inner: T, timeout: Duration) -> Self {
         Timeout {
             inner,
             timeout,
-            _req: PhantomData,
         }
     }
 }
 
-impl<S, R> Service<R> for Timeout<S, R>
+impl<S, R> Service<R> for Timeout<S>
 where S: Service<R>,
 {
     type Response = S::Response;

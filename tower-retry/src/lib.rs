@@ -5,19 +5,16 @@ extern crate tower_service;
 use futures::{Async, Future, Poll};
 use tower_service::Service;
 
-use std::marker::PhantomData;
-
-#[derive(Debug)]
-pub struct Retry<P, S, R> {
+#[derive(Debug, Clone)]
+pub struct Retry<P, S> {
     policy: P,
     service: S,
-    _req: PhantomData<fn() -> R>,
 }
 
 #[derive(Debug)]
 pub struct ResponseFuture<P: Policy<R, S::Response, S::Error>, S: Service<R>, R> {
     request: Option<R>,
-    retry: Retry<P, S, R>,
+    retry: Retry<P, S>,
     state: State<S::Future, P::Future, S::Response, S::Error>,
 }
 
@@ -40,21 +37,16 @@ pub trait Policy<Req, Res, E>: Sized {
 
 // ===== impl Retry =====
 
-impl<P, S, R> Retry<P, S, R>
-where
-    P: Policy<R, S::Response, S::Error> + Clone,
-    S: Service<R> + Clone,
-{
+impl<P, S> Retry<P, S> {
     pub fn new(policy: P, service: S) -> Self {
         Retry {
             policy,
             service,
-            _req: PhantomData,
         }
     }
 }
 
-impl<P, S, R> Service<R> for Retry<P, S, R>
+impl<P, S, R> Service<R> for Retry<P, S>
 where
     P: Policy<R, S::Response, S::Error> + Clone,
     S: Service<R> + Clone,
@@ -74,22 +66,6 @@ where
             request: cloned,
             retry: self.clone(),
             state: State::Called(future),
-        }
-    }
-}
-
-// Manual impl of Clone for Retry since the Request type need not be clone.
-
-impl<P, S, R> Clone for Retry<P, S, R>
-where
-    P: Policy<R, S::Response, S::Error> + Clone,
-    S: Service<R> + Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            policy: self.policy.clone(),
-            service: self.service.clone(),
-            _req: PhantomData,
         }
     }
 }

@@ -4,14 +4,12 @@
 //!
 use futures::{Future, Poll};
 use tower_service::Service;
-use std::marker::PhantomData;
 
 /// Optionally forwards requests to an inner service.
 ///
 /// If the inner service is `None`, `Error::None` is returned as the response.
-pub struct OptionService<T, R> {
+pub struct OptionService<T> {
     inner: Option<T>,
-    _req: PhantomData<fn() -> R>,
 }
 
 /// Response future returned by `OptionService`.
@@ -28,12 +26,11 @@ pub enum Error<T> {
 
 // ===== impl OptionService =====
 
-impl<T, R> OptionService<T, R> {
+impl<T> OptionService<T> {
     /// Returns an `OptionService` that forwards requests to `inner`.
     pub fn some(inner: T) -> Self {
         OptionService {
             inner: Some(inner),
-            _req: PhantomData,
         }
     }
 
@@ -42,12 +39,11 @@ impl<T, R> OptionService<T, R> {
     pub fn none() -> Self {
         OptionService {
             inner: None,
-            _req: PhantomData,
         }
     }
 }
 
-impl<T, R> Service<R> for OptionService<T, R>
+impl<T, R> Service<R> for OptionService<T>
 where T: Service<R>,
 {
     type Response = T::Response;

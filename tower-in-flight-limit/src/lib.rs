@@ -9,16 +9,14 @@ use tower_service::Service;
 use futures::{Future, Poll, Async};
 use futures::task::AtomicTask;
 use std::{error, fmt};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 
 #[derive(Debug, Clone)]
-pub struct InFlightLimit<T, R>  {
+pub struct InFlightLimit<T>  {
     inner: T,
     state: State,
-    _req: PhantomData<fn() -> R>,
 }
 
 /// Error returned when the service has reached its limit.
@@ -49,7 +47,7 @@ struct Shared {
 
 // ===== impl InFlightLimit =====
 
-impl<T: Service<R>, R> InFlightLimit<T, R> {
+impl<T> InFlightLimit<T> {
     /// Create a new rate limiter
     pub fn new(inner: T, max: usize) -> Self {
         InFlightLimit {
@@ -62,7 +60,6 @@ impl<T: Service<R>, R> InFlightLimit<T, R> {
                 }),
                 reserved: false,
             },
-            _req: PhantomData,
         }
     }
 
@@ -82,7 +79,7 @@ impl<T: Service<R>, R> InFlightLimit<T, R> {
     }
 }
 
-impl<S, R> Service<R> for InFlightLimit<S, R>
+impl<S, R> Service<R> for InFlightLimit<S>
 where S: Service<R>
 {
     type Response = S::Response;

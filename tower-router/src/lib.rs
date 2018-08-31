@@ -12,14 +12,12 @@ use futures::{Future, Poll};
 use futures_borrow::{Borrow, BorrowGuard};
 
 use std::mem;
-use std::marker::PhantomData;
 
 use self::ResponseState::*;
 
 /// Routes requests to an inner service based on the request.
-pub struct Router<T, R> {
+pub struct Router<T> {
     recognize: Borrow<T>,
-    _req: PhantomData<fn() -> R>,
 }
 
 /// Matches the request with a route
@@ -90,19 +88,16 @@ where T: Recognize<R>
 
 // ===== impl Router =====
 
-impl<T, R> Router<T, R>
-where T: Recognize<R>
-{
+impl<T: 'static> Router<T> {
     /// Create a new router
     pub fn new(recognize: T) -> Self {
         Router {
             recognize: Borrow::new(recognize),
-            _req: PhantomData,
         }
     }
 }
 
-impl<T, R> Service<R> for Router<T, R>
+impl<T, R> Service<R> for Router<T>
 where T: Recognize<R>,
 {
     type Response = T::Response;

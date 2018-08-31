@@ -14,14 +14,12 @@ use tokio_timer::Delay;
 
 use std::{error, fmt};
 use std::time::{Duration, Instant};
-use std::marker::PhantomData;
 
 #[derive(Debug)]
-pub struct RateLimit<T, R> {
+pub struct RateLimit<T> {
     inner: T,
     rate: Rate,
     state: State,
-    _req: PhantomData<fn() -> R>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -53,7 +51,7 @@ enum State {
     },
 }
 
-impl<T, R> RateLimit<T, R> {
+impl<T> RateLimit<T> {
     /// Create a new rate limiter
     pub fn new(inner: T, rate: Rate) -> Self {
         let state = State::Ready {
@@ -65,7 +63,6 @@ impl<T, R> RateLimit<T, R> {
             inner,
             rate,
             state: state,
-            _req: PhantomData,
         }
     }
 
@@ -99,7 +96,7 @@ impl Rate {
     }
 }
 
-impl<S, R> Service<R> for RateLimit<S, R>
+impl<S, R> Service<R> for RateLimit<S>
 where S: Service<R>
 {
     type Response = S::Response;

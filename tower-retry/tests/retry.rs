@@ -177,7 +177,7 @@ impl Policy<Req, Res, Error> for CannotClone {
     }
 }
 
-fn new_service<P: Policy<Req, Res, Error> + Clone>(policy: P) -> (tower_retry::Retry<P, Mock, Req>, Handle) {
+fn new_service<P: Policy<Req, Res, Error> + Clone>(policy: P) -> (tower_retry::Retry<P, Mock>, Handle) {
     let (service, handle) = Mock::new();
     let service = tower_retry::Retry::new(policy, service);
     (service, handle)

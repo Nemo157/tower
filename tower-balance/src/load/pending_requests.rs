@@ -1,6 +1,5 @@
 use futures::{Async, Poll};
 use std::sync::Arc;
-use std::marker::PhantomData;
 use tower_discover::{Change, Discover};
 use tower_service::Service;
 
@@ -9,15 +8,10 @@ use super::{Instrument, InstrumentFuture, NoInstrument};
 
 /// Expresses load based on the number of currently-pending requests.
 #[derive(Debug)]
-pub struct PendingRequests<S, R, I = NoInstrument>
-where
-    S: Service<R>,
-    I: Instrument<Handle, S::Response>,
-{
+pub struct PendingRequests<S, I = NoInstrument> {
     service: S,
     ref_count: RefCount,
     instrument: I,
-    _req: PhantomData<fn() -> R>,
 }
 
 /// Shared between instances of `PendingRequests` and `Handle` to track active
@@ -27,14 +21,9 @@ struct RefCount(Arc<()>);
 
 /// Wraps `inner`'s services with `PendingRequests`.
 #[derive(Debug)]
-pub struct WithPendingRequests<D, R, I = NoInstrument>
-where
-    D: Discover<R>,
-    I: Instrument<Handle, D::Response>,
-{
+pub struct WithPendingRequests<D, I = NoInstrument> {
     discover: D,
     instrument: I,
-    _req: PhantomData<fn() -> R>,
 }
 
 /// Represents the number of currently-pending requests to a given service.
@@ -46,17 +35,12 @@ pub struct Handle(RefCount);
 
 // ===== impl PendingRequests =====
 
-impl<S, R, I> PendingRequests<S, R, I>
-where
-    S: Service<R>,
-    I: Instrument<Handle, S::Response>,
-{
+impl<S, I> PendingRequests<S, I> {
     fn new(service: S, instrument: I) -> Self {
         Self {
             service,
             instrument,
             ref_count: RefCount::default(),
-            _req: PhantomData,
         }
     }
 
@@ -65,11 +49,7 @@ where
     }
 }
 
-impl<S, R, I> Load for PendingRequests<S, R, I>
-where
-    S: Service<R>,
-    I: Instrument<Handle, S::Response>,
-{
+impl<S, I> Load for PendingRequests<S, I> {
     type Metric = Count;
 
     fn load(&self) -> Count {
@@ -78,7 +58,7 @@ where
     }
 }
 
-impl<S, R, I> Service<R> for PendingRequests<S, R, I>
+impl<S, I, R> Service<R> for PendingRequests<S, I>
 where
     S: Service<R>,
     I: Instrument<Handle, S::Response>,
@@ -98,21 +78,16 @@ where
 
 // ===== impl WithPendingRequests =====
 
-impl<D, R, I> WithPendingRequests<D, R, I>
-where
-    D: Discover<R>,
-    I: Instrument<Handle, D::Response>,
-{
+impl<D, I> WithPendingRequests<D, I> {
     pub fn new(discover: D, instrument: I) -> Self {
         Self {
             discover,
             instrument,
-            _req: PhantomData,
         }
     }
 }
 
-impl<D, R, I> Discover<R> for WithPendingRequests<D, R, I>
+impl<D, I, R> Discover<R> for WithPendingRequests<D, I>
 where
     D: Discover<R>,
     D::Service: Service<R>,
@@ -121,7 +96,7 @@ where
     type Key = D::Key;
     type Response = I::Output;
     type Error = D::Error;
-    type Service = PendingRequests<D::Service, R, I>;
+    type Service = PendingRequests<D::Service, I>;
     type DiscoverError = D::DiscoverError;
 
     /// Yields the next discovery change set.

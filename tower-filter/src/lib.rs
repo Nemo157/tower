@@ -9,18 +9,16 @@ use futures::task::AtomicTask;
 use tower_service::Service;
 
 use std::{fmt, mem};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 
 #[derive(Debug)]
-pub struct Filter<T, U, R> {
+pub struct Filter<T, U> {
     inner: T,
     predicate: U,
     // Tracks the number of in-flight requests
     counts: Arc<Counts>,
-    _req: PhantomData<fn() -> R>,
 }
 
 pub struct ResponseFuture<T, S, R>
@@ -79,10 +77,7 @@ enum State<T, U> {
 
 // ===== impl Filter =====
 
-impl<T, U, R> Filter<T, U, R>
-where T: Service<R> + Clone,
-      U: Predicate<R>,
-{
+impl<T, U> Filter<T, U> {
     pub fn new(inner: T, predicate: U, buffer: usize) -> Self {
         let counts = Counts {
             task: AtomicTask::new(),
@@ -93,12 +88,11 @@ where T: Service<R> + Clone,
             inner,
             predicate,
             counts: Arc::new(counts),
-            _req: PhantomData,
         }
     }
 }
 
-impl<T, U, R> Service<R> for Filter<T, U, R>
+impl<T, U, R> Service<R> for Filter<T, U>
 where T: Service<R> + Clone,
       U: Predicate<R>,
 {

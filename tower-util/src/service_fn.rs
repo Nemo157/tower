@@ -1,29 +1,25 @@
 use futures::IntoFuture;
 use tower_service::{Service, NewService};
-use std::marker::PhantomData;
 
 /// A `NewService` implemented by a closure.
-pub struct NewServiceFn<T, R> {
+pub struct NewServiceFn<T> {
     f: T,
-    _req: PhantomData<fn() -> R>,
 }
 
 // ===== impl NewServiceFn =====
 
-impl<T, N, R> NewServiceFn<T, R>
+impl<T, N> NewServiceFn<T>
 where T: Fn() -> N,
-      N: Service<R>,
 {
     /// Returns a new `NewServiceFn` with the given closure.
     pub fn new(f: T) -> Self {
         NewServiceFn {
             f,
-            _req: PhantomData,
         }
     }
 }
 
-impl<T, R, S, Q> NewService<Q> for NewServiceFn<T, Q>
+impl<T, R, S, Q> NewService<Q> for NewServiceFn<T>
 where T: Fn() -> R,
       R: IntoFuture<Item = S>,
       S: Service<Q>,

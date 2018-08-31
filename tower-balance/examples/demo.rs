@@ -218,7 +218,7 @@ impl Discover<Req> for Disco {
     type Key = usize;
     type Response = Rsp;
     type Error = tower_in_flight_limit::Error<tower_buffer::Error<timer::Error>>;
-    type Service = InFlightLimit<Buffer<DelayService, Req>, Req>;
+    type Service = InFlightLimit<Buffer<DelayService, Req>>;
     type DiscoverError = ();
 
     fn poll(&mut self) -> Poll<Change<Self::Key, Self::Service>, Self::DiscoverError> {
@@ -240,7 +240,7 @@ where
     C: lb::Choose<D::Key, D::Service>,
 {
     send_remaining: usize,
-    lb: InFlightLimit<Buffer<lb::Balance<D, C, Req>, Req>, Req>,
+    lb: InFlightLimit<Buffer<lb::Balance<D, C, Req>, Req>>,
     responses: stream::FuturesUnordered<
         tower_in_flight_limit::ResponseFuture<tower_buffer::ResponseFuture<lb::Balance<D, C, Req>, Req>>,
     >,
