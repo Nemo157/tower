@@ -1,6 +1,7 @@
 use futures::{Async, Poll};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use std::marker::PhantomData;
 use tokio_timer::clock;
 use tower_discover::{Change, Discover};
 use tower_service::Service;
@@ -34,18 +35,20 @@ use Load;
 ///
 /// [finagle]:
 /// https://github.com/twitter/finagle/blob/9cc08d15216497bb03a1cafda96b7266cfbbcff1/finagle-core/src/main/scala/com/twitter/finagle/loadbalancer/PeakEwma.scala
-pub struct PeakEwma<S, I = NoInstrument> {
+pub struct PeakEwma<S, R, I = NoInstrument> {
     service: S,
     decay_ns: f64,
     rtt_estimate: Arc<Mutex<Option<RttEstimate>>>,
     instrument: I,
+    _req: PhantomData<fn() -> R>,
 }
 
 /// Wraps a `D`-typed stream of discovery updates with `PeakEwma`.
-pub struct WithPeakEwma<D, I = NoInstrument> {
+pub struct WithPeakEwma<D, R, I = NoInstrument> {
     discover: D,
     decay_ns: f64,
     instrument: I,
+    _req: PhantomData<fn() -> R>,
 }
 
 /// Represents the relative cost of communicating with a service.
@@ -80,9 +83,9 @@ const NANOS_PER_MILLI: f64 = 1_000_000.0;
 
 // ===== impl PeakEwma =====
 
-impl<D, I> WithPeakEwma<D, I>
+impl<D, R, I> WithPeakEwma<D, R, I>
 where
-    D: Discover,
+    D: Discover<R>,
     I: Instrument<Handle, D::Response>,
 {
     pub fn new(discover: D, decay: Duration, instrument: I) -> Self {
@@ -90,20 +93,21 @@ where
             discover,
             decay_ns: nanos(decay),
             instrument,
+            _req: PhantomData,
         }
     }
 }
 
-impl<D, I> Discover for WithPeakEwma<D, I>
+impl<D, R, I> Discover<R> for WithPeakEwma<D, R, I>
 where
-    D: Discover,
+    D: Discover<R>,
+    D::Service: Service<R>,
     I: Instrument<Handle, D::Response>,
 {
     type Key = D::Key;
-    type Request = D::Request;
     type Response = I::Output;
     type Error = D::Error;
-    type Service = PeakEwma<D::Service, I>;
+    type Service = PeakEwma<D::Service, R, I>;
     type DiscoverError = D::DiscoverError;
 
     fn poll(&mut self) -> Poll<Change<D::Key, Self::Service>, D::DiscoverError> {
@@ -120,9 +124,9 @@ where
 
 // ===== impl PeakEwma =====
 
-impl<S, I> PeakEwma<S, I>
+impl<S, R, I> PeakEwma<S, R, I>
 where
-    S: Service,
+    S: Service<R>,
     I: Instrument<Handle, S::Response>,
 {
     fn new(service: S, decay_ns: f64, instrument: I) -> Self {
@@ -131,6 +135,7 @@ where
             decay_ns,
             rtt_estimate: Arc::new(Mutex::new(None)),
             instrument,
+            _req: PhantomData,
         }
     }
 
@@ -143,12 +148,11 @@ where
     }
 }
 
-impl<S, I> Service for PeakEwma<S, I>
+impl<S, R, I> Service<R> for PeakEwma<S, R, I>
 where
-    S: Service,
+    S: Service<R>,
     I: Instrument<Handle, S::Response>,
 {
-    type Request = S::Request;
     type Response = I::Output;
     type Error = S::Error;
     type Future = InstrumentFuture<S::Future, I, Handle>;
@@ -157,12 +161,12 @@ where
         self.service.poll_ready()
     }
 
-    fn call(&mut self, req: Self::Request) -> Self::Future {
+    fn call(&mut self, req: R) -> Self::Future {
         InstrumentFuture::new(self.instrument.clone(), self.handle(), self.service.call(req))
     }
 }
 
-impl<S, I> Load for PeakEwma<S, I> {
+impl<S, R, I> Load for PeakEwma<S, R, I> {
     type Metric = Cost;
 
     fn load(&self) -> Self::Metric {
