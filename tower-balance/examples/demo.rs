@@ -96,16 +96,16 @@ fn gen_disco(executor: runtime::TaskExecutor) -> Disco {
 
 fn run<D, C>(
     name: &'static str,
-    lb: lb::Balance<D, C>,
+    lb: lb::Balance<D, C, Req>,
     executor: &runtime::TaskExecutor,
 ) -> impl Future<Item = (), Error = ()>
 where
-    D: Discover<Request = Req, Response = Rsp> + Send + 'static,
+    D: Discover<Req, Response = Rsp> + Send + 'static,
     D::Key: Send,
     D::Service: Send,
     D::Error: Send,
     D::DiscoverError: Send,
-    <D::Service as Service>::Future: Send,
+    <D::Service as Service<Req>>::Future: Send,
     C: lb::Choose<D::Key, D::Service> + Send + 'static,
 {
     println!("{}", name);
@@ -180,8 +180,7 @@ struct Rsp {
     latency: Duration,
 }
 
-impl Service for DelayService {
-    type Request = Req;
+impl Service<Req> for DelayService {
     type Response = Rsp;
     type Error = timer::Error;
     type Future = Delay;
@@ -215,12 +214,11 @@ impl Future for Delay {
     }
 }
 
-impl Discover for Disco {
+impl Discover<Req> for Disco {
     type Key = usize;
-    type Request = Req;
     type Response = Rsp;
     type Error = tower_in_flight_limit::Error<tower_buffer::Error<timer::Error>>;
-    type Service = InFlightLimit<Buffer<DelayService>>;
+    type Service = InFlightLimit<Buffer<DelayService, Req>, Req>;
     type DiscoverError = ();
 
     fn poll(&mut self) -> Poll<Change<Self::Key, Self::Service>, Self::DiscoverError> {
@@ -238,28 +236,28 @@ impl Discover for Disco {
 
 struct SendRequests<D, C>
 where
-    D: Discover<Request = Req, Response = Rsp>,
+    D: Discover<Req, Response = Rsp>,
     C: lb::Choose<D::Key, D::Service>,
 {
     send_remaining: usize,
-    lb: InFlightLimit<Buffer<lb::Balance<D, C>>>,
+    lb: InFlightLimit<Buffer<lb::Balance<D, C, Req>, Req>, Req>,
     responses: stream::FuturesUnordered<
-        tower_in_flight_limit::ResponseFuture<tower_buffer::ResponseFuture<lb::Balance<D, C>>>,
+        tower_in_flight_limit::ResponseFuture<tower_buffer::ResponseFuture<lb::Balance<D, C, Req>, Req>>,
     >,
 }
 
 impl<D, C> SendRequests<D, C>
 where
-    D: Discover<Request = Req, Response = Rsp> + Send + 'static,
+    D: Discover<Req, Response = Rsp> + Send + 'static,
     D::Key: Send,
     D::Service: Send,
     D::Error: Send,
     D::DiscoverError: Send,
-    <D::Service as Service>::Future: Send,
+    <D::Service as Service<Req>>::Future: Send,
     C: lb::Choose<D::Key, D::Service> + Send + 'static,
 {
     pub fn new(
-        lb: lb::Balance<D, C>,
+        lb: lb::Balance<D, C, Req>,
         total: usize,
         concurrency: usize,
         executor: &runtime::TaskExecutor,
@@ -274,12 +272,12 @@ where
 
 impl<D, C> Stream for SendRequests<D, C>
 where
-    D: Discover<Request = Req, Response = Rsp>,
+    D: Discover<Req, Response = Rsp>,
     C: lb::Choose<D::Key, D::Service>,
 {
     type Item = Rsp;
     type Error =
-        tower_in_flight_limit::Error<tower_buffer::Error<<lb::Balance<D, C> as Service>::Error>>;
+        tower_in_flight_limit::Error<tower_buffer::Error<<lb::Balance<D, C, Req> as Service<Req>>::Error>>;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         debug!(

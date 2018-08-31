@@ -61,8 +61,8 @@ type Handle = tower_mock::Handle<&'static str, &'static str, ()>;
 
 struct Exec;
 
-impl futures::future::Executor<Worker<Mock>> for Exec {
-    fn execute(&self, fut: Worker<Mock>) -> Result<(), futures::future::ExecuteError<Worker<Mock>>> {
+impl futures::future::Executor<Worker<Mock, &'static str>> for Exec {
+    fn execute(&self, fut: Worker<Mock, &'static str>) -> Result<(), futures::future::ExecuteError<Worker<Mock, &'static str>>> {
         thread::spawn(move || {
             fut.wait().unwrap();
         });
@@ -70,7 +70,7 @@ impl futures::future::Executor<Worker<Mock>> for Exec {
     }
 }
 
-fn new_service() -> (Buffer<Mock>, Handle) {
+fn new_service() -> (Buffer<Mock, &'static str>, Handle) {
     let (service, handle) = Mock::new();
     let service = Buffer::new(service, &Exec).unwrap();
     (service, handle)

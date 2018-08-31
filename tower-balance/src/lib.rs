@@ -385,9 +385,8 @@ mod tests {
         polls_until_ready: usize,
     }
 
-    impl Discover for ReluctantDisco {
+    impl Discover<()> for ReluctantDisco {
         type Key = usize;
-        type Request = ();
         type Response = ();
         type Error = ();
         type Service = ReluctantService;
@@ -400,8 +399,7 @@ mod tests {
         }
     }
 
-    impl Service for ReluctantService {
-        type Request = ();
+    impl Service<()> for ReluctantService {
         type Response = ();
         type Error = ();
         type Future = future::FutureResult<(), ()>;

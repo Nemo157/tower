@@ -252,7 +252,7 @@ fn response_future_drop_releases_capacity() {
 type Mock = tower_mock::Mock<&'static str, &'static str, ()>;
 type Handle = tower_mock::Handle<&'static str, &'static str, ()>;
 
-fn new_service(max: usize) -> (InFlightLimit<Mock>, Handle) {
+fn new_service(max: usize) -> (InFlightLimit<Mock, &'static str>, Handle) {
     let (service, handle) = Mock::new();
     let service = InFlightLimit::new(service, max);
     (service, handle)
