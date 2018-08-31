@@ -12,18 +12,18 @@ use futures::{Future, Poll};
 use futures_borrow::{Borrow, BorrowGuard};
 
 use std::mem;
+use std::marker::PhantomData;
 
 use self::ResponseState::*;
 
 /// Routes requests to an inner service based on the request.
-pub struct Router<T> {
+pub struct Router<T, R> {
     recognize: Borrow<T>,
+    _req: PhantomData<fn() -> R>,
 }
 
 /// Matches the request with a route
-pub trait Recognize: 'static {
-    /// Request being matched
-    type Request;
+pub trait Recognize<Request>: 'static {
 
     /// Inner service's response
     type Response;
@@ -35,7 +35,7 @@ pub trait Recognize: 'static {
     type RouteError;
 
     /// The destination service
-    type Service: Service<Request = Self::Request,
+    type Service: Service<Request,
                          Response = Self::Response,
                             Error = Self::Error>;
 
@@ -50,14 +50,14 @@ pub trait Recognize: 'static {
     /// service should determine the buffering strategy used to handle the
     /// request until the request can be processed.  This behavior enables
     /// punting all buffering decisions to the inner service.
-    fn recognize(&mut self, request: &Self::Request)
+    fn recognize(&mut self, request: &Request)
         -> Result<&mut Self::Service, Self::RouteError>;
 }
 
-pub struct ResponseFuture<T>
-where T: Recognize,
+pub struct ResponseFuture<T, R>
+where T: Recognize<R>,
 {
-    state: ResponseState<T>,
+    state: ResponseState<T, R>,
 }
 
 /// Error produced by the `Router` service
@@ -75,14 +75,14 @@ pub enum Error<T, U> {
     NotReady,
 }
 
-enum ResponseState<T>
-where T: Recognize
+enum ResponseState<T, R>
+where T: Recognize<R>
 {
-    Dispatched(<T::Service as Service>::Future),
+    Dispatched(<T::Service as Service<R>>::Future),
     RouteError(T::RouteError),
     Queued {
         service: BorrowGuard<T::Service>,
-        request: T::Request,
+        request: R,
     },
     NotReady,
     Invalid,
@@ -90,22 +90,24 @@ where T: Recognize
 
 // ===== impl Router =====
 
-impl<T> Router<T>
-where T: Recognize
+impl<T, R> Router<T, R>
+where T: Recognize<R>
 {
     /// Create a new router
     pub fn new(recognize: T) -> Self {
-        Router { recognize: Borrow::new(recognize) }
+        Router {
+            recognize: Borrow::new(recognize),
+            _req: PhantomData,
+        }
     }
 }
 
-impl<T> Service for Router<T>
-where T: Recognize,
+impl<T, R> Service<R> for Router<T, R>
+where T: Recognize<R>,
 {
-    type Request = T::Request;
     type Response = T::Response;
     type Error = Error<T::Error, T::RouteError>;
-    type Future = ResponseFuture<T>;
+    type Future = ResponseFuture<T, R>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
         // Checks if there is an outstanding borrow (i.e. there is an in-flight
@@ -116,7 +118,7 @@ where T: Recognize,
         self.recognize.poll_ready().map_err(|_| panic!())
     }
 
-    fn call(&mut self, request: Self::Request) -> Self::Future {
+    fn call(&mut self, request: R) -> Self::Future {
         let borrow = match self.recognize.try_borrow() {
             Ok(borrow) => borrow,
             Err(_) => {
@@ -151,8 +153,8 @@ where T: Recognize,
 
 // ===== impl ResponseFuture =====
 
-impl<T> Future for ResponseFuture<T>
-where T: Recognize,
+impl<T, R> Future for ResponseFuture<T, R>
+where T: Recognize<R>,
 {
     type Item = T::Response;
     type Error = Error<T::Error, T::RouteError>;
