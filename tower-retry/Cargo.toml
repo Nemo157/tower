@@ -1,3 +1,5 @@
+cargo-features = ["rename-dependency"]
+
 [package]
 name = "tower-retry"
 version = "0.1.0"
@@ -7,6 +9,8 @@ publish = false
 [dependencies]
 futures = "0.1"
 tower-service = { version = "0.1", path = "../tower-service" }
+futures03 = { package = "futures-preview", git = "https://github.com/rust-lang-nursery/futures-rs", features = ["compat"] }
+futures03_test = { package = "futures-test-preview", git = "https://github.com/rust-lang-nursery/futures-rs" }
 
 [dev-dependencies]
 tower-mock = { version = "0.1", path = "../tower-mock" }
